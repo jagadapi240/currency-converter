@@ -2,21 +2,18 @@ pipeline {
     agent any
 
     tools {
-        // MUST match Maven name in "Manage Jenkins → Global Tool Configuration"
+        // MUST match the Maven installation name in Jenkins (Manage Jenkins → Global Tool Configuration)
         maven 'Maven'
     }
 
     environment {
-        // SonarQube installation name from Jenkins (Manage Jenkins → Configure System → SonarQube)
+        // SonarQube installation name from Jenkins (Manage Jenkins → Configure System → SonarQube servers)
         SONARQUBE_ENV = 'MySonarQube'
 
-        // Nexus URL (releases repo)
-        NEXUS_RELEASE_REPO = 'http://51.21.202.150:8081/repository/maven-releases'
-
-        // DockerHub image
+        // DockerHub image name
         DOCKER_IMAGE = 'jagadapi240/currency-converter'
 
-        // Docker image version
+        // Docker tag = Jenkins build number
         VERSION = "${env.BUILD_NUMBER}"
     }
 
@@ -42,20 +39,28 @@ pipeline {
             }
         }
 
-        /* 3. MAVEN BUILD */
+        /* 3. MAVEN BUILD (PACKAGE WAR) */
         stage('Maven Package') {
             steps {
                 sh 'mvn -B -DskipTests clean package'
             }
         }
 
-        /* 4. DEPLOY ARTIFACT TO NEXUS */
+        /* 4. UPLOAD ARTIFACT TO NEXUS */
         stage('Nexus Upload') {
             steps {
-                sh '''
-                    mvn deploy -DskipTests \
-                      -DaltDeploymentRepository=nexus::default::http://51.21.202.150:8081/repository/maven-releases/
-                '''
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'nexus-creds',
+                        usernameVariable: 'NEXUS_USER',
+                        passwordVariable: 'NEXUS_PASS'
+                    )
+                ]) {
+                    sh """
+                        mvn deploy -DskipTests \
+                          -DaltDeploymentRepository=nexus::default::http://$NEXUS_USER:$NEXUS_PASS@51.21.202.150:8081/repository/maven-releases/
+                    """
+                }
             }
         }
 
