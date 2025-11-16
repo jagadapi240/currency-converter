@@ -2,12 +2,11 @@ pipeline {
     agent any
 
     tools {
-        // ⬇️ Change this to the exact name of your Maven tool in Jenkins
-        maven 'Maven_3_9_11'
+        // This must match the exact name in "Manage Jenkins → Global Tool Configuration"
+        maven 'Maven'
     }
 
     environment {
-        // ⬇️ Change to your DockerHub repo name
         DOCKER_IMAGE = 'jagadapi240/currency-converter'
         VERSION = "${env.BUILD_NUMBER}"
     }
@@ -55,10 +54,8 @@ pipeline {
         stage('Deploy Container on 8082') {
             steps {
                 sh '''
-                  # Stop & remove old container if exists
                   docker rm -f currency-converter-app || true
 
-                  # Run new container
                   docker run -d --name currency-converter-app \
                     -p 8082:8080 \
                     ${DOCKER_IMAGE}:${VERSION}
