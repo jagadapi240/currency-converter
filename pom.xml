@@ -30,7 +30,8 @@
             <version>6.0.0</version>
             <scope>provided</scope>
         </dependency>
-        <!-- (Optional) JSP API for compilation if you have JSP pages -->
+
+        <!-- (Optional) JSP API -->
         <dependency>
             <groupId>jakarta.servlet.jsp</groupId>
             <artifactId>jakarta.servlet.jsp-api</artifactId>
@@ -66,5 +67,12 @@
         </plugins>
     </build>
 
-</project>
+    <!-- ✅ Added Distribution Management -->
+    <distributionManagement>
+        <repository>
+            <id>nexus</id>
+            <url>http://51.21.202.150:8081/repository/maven-releases/</url>
+        </repository>
+    </distributionManagement>
 
+</project>
