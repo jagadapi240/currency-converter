@@ -2,72 +2,83 @@ pipeline {
     agent any
 
     tools {
-        // This must match the exact name in "Manage Jenkins → Global Tool Configuration"
-        maven 'Maven'
+        maven 'Maven'    // MUST match Jenkins Global Tool Config
     }
 
     environment {
-        DOCKER_IMAGE = 'jagadapi240/currency-converter'
+
+        // Change to your SonarQube server name from Jenkins
+        SONARQUBE_ENV = 'MySonarQube'
+
+        // Nexus repository (CHANGE this if needed)
+        NEXUS_RELEASE_REPO = "http://51.21.202.150:8081/repository/maven-releases/"
+
+        // Docker image name
+        DOCKER_IMAGE = "jagadapi240/currency-converter"
+
+        // Version for Docker tags
         VERSION = "${env.BUILD_NUMBER}"
     }
 
     stages {
 
-        stage('Checkout') {
+        /* ----------------------------------------------------
+           1. CHECKOUT CODE FROM SCM
+        ---------------------------------------------------- */
+        stage('SCM Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Build with Maven') {
+        /* ----------------------------------------------------
+           2. SONARQUBE ANALYSIS
+        ---------------------------------------------------- */
+        stage('SonarQube Analysis') {
             steps {
-                sh 'mvn clean package -DskipTests'
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                sh '''
-                  echo "Building Docker image ${DOCKER_IMAGE}:${VERSION}"
-                  docker build -t ${DOCKER_IMAGE}:${VERSION} .
-                '''
-            }
-        }
-
-        stage('Push to DockerHub') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-pat',
-                    usernameVariable: 'DH_USER',
-                    passwordVariable: 'DH_TOKEN'
-                )]) {
+                withSonarQubeEnv("${SONARQUBE_ENV}") {
                     sh '''
-                      echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
-                      docker push ${DOCKER_IMAGE}:${VERSION}
-                      docker tag ${DOCKER_IMAGE}:${VERSION} ${DOCKER_IMAGE}:latest
-                      docker push ${DOCKER_IMAGE}:latest
+                        mvn clean verify sonar:sonar \
+                         -Dsonar.projectKey=currency-converter \
+                         -Dsonar.projectName="Currency Converter"
                     '''
                 }
             }
         }
 
-        stage('Deploy Container on 8082') {
+        /* ----------------------------------------------------
+           3. MAVEN BUILD
+        ---------------------------------------------------- */
+        stage('Maven Package') {
             steps {
-                sh '''
-                  docker rm -f currency-converter-app || true
-
-                  docker run -d --name currency-converter-app \
-                    -p 8082:8080 \
-                    ${DOCKER_IMAGE}:${VERSION}
-                '''
+                sh 'mvn -B -DskipTests clean package'
             }
         }
-    }
 
-    post {
-        always {
-            cleanWs()
+        /* ----------------------------------------------------
+           4. STAGE ARTIFACT IN NEXUS
+        ---------------------------------------------------- */
+        stage('Nexus Upload') {
+            steps {
+                sh """
+                    mvn deploy -DskipTests \
+                      -Dnexus.url=${NEXUS_RELEASE_REPO} \
+                      -DaltDeploymentRepository=nexus::default::${NEXUS_RELEASE_REPO}
+                """
+            }
         }
-    }
-}
+
+        /* ----------------------------------------------------
+           5. DOWNLOAD ARTIFACT FROM NEXUS FOR DOCKER BUILD
+        ---------------------------------------------------- */
+        stage('Download WAR from Nexus') {
+            steps {
+                sh '''
+                    # Create deploy directory
+                    rm -rf deploy || true
+                    mkdir deploy
+
+                    # Download the latest WAR uploaded
+                    echo "Downloading WAR from Nexus..."
+                    curl -u $NEXUS_USER:$NEXUS_PASS -o deploy/app.war \
 
