@@ -1,0 +1,116 @@
+name: CI-CD Currency Converter
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test-analyze:
+    name: Build, Test, SonarQube, Nexus, Docker
+    runs-on: ubuntu-latest
+
+    env:
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      NEXUS_URL: ${{ secrets.NEXUS_URL }}
+      NEXUS_USER: ${{ secrets.NEXUS_USER }}
+      NEXUS_PASS: ${{ secrets.NEXUS_PASS }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKER_IMAGE: jagadapi240/currency-converter
+
+    steps:
+      # 1) Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2) Setup JDK 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      # 3) SonarQube + Maven build (clean verify + sonar:sonar)
+      - name: Maven build and SonarQube analysis
+        run: |
+          mvn -B clean verify sonar:sonar \
+            -Dsonar.projectKey=currency-converter \
+            -Dsonar.projectName="Currency Converter" \
+            -Dsonar.host.url=$SONAR_HOST_URL \
+            -Dsonar.login=$SONAR_TOKEN
+
+      # 4) Maven deploy to Nexus
+      - name: Deploy artifact to Nexus
+        run: |
+          mvn -B deploy -DskipTests \
+            -DaltDeploymentRepository=nexus::default::http://$NEXUS_USER:$NEXUS_PASS@${NEXUS_URL#http://}
+        # NOTE: NEXUS_URL expected like: http://51.21.202.150:8081/repository/maven-releases/
+
+      # 5) Prepare deploy/app.war for Dockerfile
+      #    (Your Dockerfile expects deploy/app.war)
+      - name: Prepare WAR for Docker image
+        run: |
+          mkdir -p deploy
+          cp target/currency-converter.war deploy/app.war
+
+      # 6) Login to DockerHub
+      - name: Docker login
+        run: |
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+      # 7) Build Docker image (tag with GitHub Run Number and latest)
+      - name: Build Docker image
+        run: |
+          IMAGE_TAG=${{ github.run_number }}
+          echo "Building image ${DOCKER_IMAGE}:${IMAGE_TAG}"
+          docker build -t ${DOCKER_IMAGE}:${IMAGE_TAG} .
+
+      # 8) Push Docker image to DockerHub
+      - name: Push Docker image to DockerHub
+        run: |
+          IMAGE_TAG=${{ github.run_number }}
+          docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
+          docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${DOCKER_IMAGE}:latest
+          docker push ${DOCKER_IMAGE}:latest
+
+  # OPTIONAL: Deploy to your EC2 Docker host via SSH
+  # Uncomment this job if you want GitHub Actions to deploy to your server directly.
+  # Make sure SSH_HOST, SSH_USER, SSH_KEY secrets are configured.
+  deploy:
+    name: Deploy to EC2 Docker Host
+    needs: build-test-analyze
+    runs-on: ubuntu-latest
+    if: false  # change to "true" or condition when you are ready to enable deployment
+
+    env:
+      DOCKER_IMAGE: jagadapi240/currency-converter
+
+    steps:
+      - name: Deploy over SSH to Docker server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            # Find container using port 8082 and remove it if exists
+            PORT_CONTAINER=$(docker ps -q --filter "publish=8082")
+            if [ ! -z "$PORT_CONTAINER" ]; then
+              echo "Removing container already running on 8082: $PORT_CONTAINER"
+              docker rm -f $PORT_CONTAINER || true
+            fi
+
+            # Remove old app container
+            docker rm -f currency-converter-app || true
+
+            # Pull latest image
+            docker pull ${DOCKER_IMAGE}:latest
+
+            # Run new container
+            docker run -d \
+              --name currency-converter-app \
+              -p 8082:8080 \
+              ${DOCKER_IMAGE}:latest
