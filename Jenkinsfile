@@ -56,10 +56,10 @@ pipeline {
                         passwordVariable: 'NEXUS_PASS'
                     )
                 ]) {
-                    sh """
+                    sh '''
                         mvn deploy -DskipTests \
                           -DaltDeploymentRepository=nexus::default::http://$NEXUS_USER:$NEXUS_PASS@51.21.202.150:8081/repository/maven-releases/
-                    """
+                    '''
                 }
             }
         }
@@ -81,7 +81,7 @@ pipeline {
                         echo "Downloading WAR from Nexus..."
                         curl -f -u $NEXUS_USER:$NEXUS_PASS \
                           -o deploy/app.war \
-                          http://51.21.202.150:8081/repository/maven-releases/com/ajacs/currency-converter-web/1.0.0/currency-converter-web-1.0.0.war
+                          http://51.21.202.150:8081/repository/maven-releases/com/ajacs/currency-converter-web/1.0.1/currency-converter-web-1.0.1.war
                     '''
                 }
             }
