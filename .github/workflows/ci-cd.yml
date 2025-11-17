@@ -18,7 +18,10 @@ jobs:
       NEXUS_PASS: ${{ secrets.NEXUS_PASS }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      DOCKER_IMAGE: jagadapi240/currency-converter
+      DOCKER_IMAGE: "jagadapi240/currency-converter"
+
+    outputs:
+      docker_image: ${{ env.DOCKER_IMAGE }}
 
     steps:
       - name: Checkout repository
@@ -31,7 +34,7 @@ jobs:
           java-version: 17
           cache: maven
 
-      - name: Maven build & SonarQube
+      - name: Maven build + SonarQube
         run: |
           mvn -B clean verify sonar:sonar \
             -Dsonar.projectKey=currency-converter \
@@ -50,7 +53,8 @@ jobs:
           cp target/currency-converter.war deploy/app.war
 
       - name: Docker login
-        run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+        run: |
+          echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
       - name: Build Docker image
         run: |
@@ -70,32 +74,33 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      DOCKER_IMAGE: jagadapi240/currency-converter
+      DOCKER_IMAGE: "jagadapi240/currency-converter"
 
     steps:
-      - name: Deploy on EC2 via SSH
+      - name: Deploy over SSH to EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
+          envs: DOCKER_IMAGE
           script: |
-            echo "DOCKER_IMAGE=${DOCKER_IMAGE}"
+            echo "Deploying image: ${DOCKER_IMAGE}:latest"
 
-            # REMOVE any container using port 8082
+            # Remove container on port 8082
             PORT_CONTAINER=$(docker ps --filter "publish=8082" -q)
             if [ ! -z "$PORT_CONTAINER" ]; then
-              echo "Removing running container using port 8082 -> $PORT_CONTAINER"
+              echo "Stopping container on 8082: $PORT_CONTAINER"
               docker rm -f $PORT_CONTAINER || true
             fi
 
-            # REMOVE old named container (ignore if not exist)
+            # Remove old container by name
             docker rm -f currency-converter-app || true
 
-            # PULL latest image
+            # Pull latest image
             docker pull ${DOCKER_IMAGE}:latest
 
-            # RUN new container
+            # Run new container
             docker run -d \
               --name currency-converter-app \
               -p 8082:8080 \
