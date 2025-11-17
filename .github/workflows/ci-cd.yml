@@ -83,7 +83,7 @@ jobs:
     name: Deploy to EC2 Docker Host
     needs: build-test-analyze
     runs-on: ubuntu-latest
-    if: false  # change to "true" or condition when you are ready to enable deployment
+   # if: false  # change to "true" or condition when you are ready to enable deployment
 
     env:
       DOCKER_IMAGE: jagadapi240/currency-converter
